@@ -1,0 +1,24 @@
+{
+  "name": "etsy-api-root",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Root monorepo for Etsy API dashboard (server + frontend)",
+  "scripts": {
+    "postinstall": "npm --prefix server ci",
+    "start": "node server/src/app.js",
+    "dev": "npm --prefix server run dev",
+    "lint": "npm --prefix server run lint || echo 'No lint script defined in server package'",
+    "test": "npm --prefix server test || echo 'No tests defined in server package'"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BranddRetailUK/EtsyAPI.git"
+  },
+  "author": "Brandd Retail UK",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {}
+}
