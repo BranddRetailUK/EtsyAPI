@@ -1,0 +1,9 @@
+# Node modules
+**/node_modules
+npm-debug.log
+
+# macOS junk
+.DS_Store
+
+# Secrets
+server/.env
