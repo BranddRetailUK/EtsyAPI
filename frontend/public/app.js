@@ -30,23 +30,33 @@ logoutBtn.onclick = async () => {
   shopSelect.innerHTML = '<option value="">-- choose a shop --</option>';
 };
 
+// Load My Shops
 document.getElementById('btnLoadShops').onclick = async () => {
   try {
     const data = await api('/api/me/shops');
     shopsOut.textContent = JSON.stringify(data, null, 2);
-    const shops = Array.isArray(data?.results) ? data.results : (data?.shops || []);
+
+    const shops = Array.isArray(data?.shops) ? data.shops : [];
     shopSelect.innerHTML = '<option value="">-- choose a shop --</option>';
+
+    if (!shops.length) {
+      authStatus.textContent = 'Connected, but no shops found for this account.';
+      return;
+    }
+
     shops.forEach(s => {
       const opt = document.createElement('option');
       opt.value = s.shop_id;
-      opt.textContent = `${s.shop_name} (#${s.shop_id})`;
+      opt.textContent = `${s.shop_name || 'Shop'} (#${s.shop_id})`;
       shopSelect.appendChild(opt);
     });
+
     authStatus.textContent = 'Connected.';
   } catch (e) {
     shopsOut.textContent = 'Failed to fetch shops. Are you connected?';
   }
 };
+
 
 document.getElementById('btnLoadListings').onclick = async () => {
   const shopId = shopSelect.value;

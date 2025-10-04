@@ -5,7 +5,6 @@ const { requireAuth } = require('../middleware/requireAuth');
 
 const router = express.Router();
 
-// Get the authenticated user's shops
 router.get('/me/shops', requireAuth, async (req, res) => {
   try {
     const tokens = getTokens(req.session);
@@ -13,10 +12,22 @@ router.get('/me/shops', requireAuth, async (req, res) => {
     const client = makeEtsyClient(tokens.access_token);
 
     const { data } = await client.get(`/application/users/${userId}/shops`);
-    res.json(data);
+
+    // Normalize to { shops: [...] }
+    let shops = [];
+    if (Array.isArray(data)) shops = data;
+    else if (Array.isArray(data?.results)) shops = data.results;
+    else if (Array.isArray(data?.shops)) shops = data.shops;
+    else if (data && typeof data === 'object') shops = [data]; // fallback if a single shop object somehow
+
+    // Sort optional: name asc
+    shops.sort((a, b) => (a.shop_name || '').localeCompare(b.shop_name || ''));
+
+    return res.json({ shops });
   } catch (err) {
     console.error('shops error:', err.response?.data || err.message);
-    res.status(500).json({ error: 'Failed to load shops' });
+    const detail = err.response?.data?.error || 'Failed to load shops';
+    res.status(404).json({ error: detail });
   }
 });
 
