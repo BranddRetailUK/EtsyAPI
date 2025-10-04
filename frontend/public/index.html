@@ -1,84 +1,117 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Etsy API – Starter Dashboard</title>
-  <link rel="stylesheet" href="/styles.css"/>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Etsy API • Dashboard</title>
+  <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <h1>Etsy API – Starter Dashboard</h1>
-      <p class="sub">Connect → Test Shops/Listings/Orders → Create Draft Listing</p>
-    </header>
+  <header class="container">
+    <h1>Etsy API Dashboard</h1>
+    <div id="conn-badge" class="badge badge-muted">Disconnected</div>
+  </header>
 
+  <main class="container grid">
+    <!-- 1) Connect -->
     <section class="card">
-      <h2>1) Connect</h2>
-      <div class="row">
-        <button id="btnConnect">Connect Etsy</button>
-        <button id="btnRefresh">Refresh Token</button>
-        <button id="btnLogout" class="ghost">Disconnect</button>
-      </div>
-      <div id="authStatus" class="muted">Not connected</div>
-    </section>
-
-    <section class="card">
-      <h2>2) Your Shops</h2>
-      <div class="row">
-        <button id="btnLoadShops">Load My Shops</button>
-        <select id="shopSelect"><option value="">-- choose a shop --</option></select>
-      </div>
-      <pre id="shopsOut" class="scroll"></pre>
-    </section>
-
-    <section class="card">
-      <h2>3) Listings (Active)</h2>
-      <div class="row">
-        <button id="btnLoadListings">Load Active Listings</button>
-      </div>
-      <pre id="listingsOut" class="scroll"></pre>
-    </section>
-
-    <section class="card">
-      <h2>4) Orders (Receipts)</h2>
-      <div class="row">
-        <button id="btnLoadReceipts">Load Recent Receipts</button>
-      </div>
-      <pre id="receiptsOut" class="scroll"></pre>
-    </section>
-
-    <section class="card">
-      <h2>5) Create Draft Listing</h2>
-      <p class="muted">You’ll need valid <code>taxonomy_id</code> and <code>shipping_profile_id</code> from your shop.</p>
-      <form id="draftForm">
-        <div class="grid">
-          <label>Title <input name="title" required placeholder="My Draft Listing"/></label>
-          <label>Price (e.g. 19.99) <input name="price" required placeholder="19.99"/></label>
-          <label>Who made <input name="who_made" required placeholder="i_did"/></label>
-          <label>When made <input name="when_made" required placeholder="2020_2024"/></label>
-          <label>Is supply? <select name="is_supply"><option value="false">false</option><option value="true">true</option></select></label>
-          <label>Taxonomy ID <input name="taxonomy_id" required placeholder="e.g. 1234"/></label>
-          <label>Shipping Profile ID <input name="shipping_profile_id" required placeholder="e.g. 67890"/></label>
+      <div class="card-header">
+        <h2>1) Connect</h2>
+        <div class="btn-row">
+          <button id="btn-connect" class="btn">Connect Etsy</button>
+          <button id="btn-refresh" class="btn btn-secondary">Refresh Token</button>
+          <button id="btn-disconnect" class="btn btn-danger">Disconnect</button>
         </div>
-        <label>Description
-          <textarea name="description" rows="3" placeholder="Short description..."></textarea>
-        </label>
-        <div class="row">
-          <button type="submit">Create Draft</button>
-        </div>
-      </form>
-      <pre id="draftOut" class="scroll"></pre>
+      </div>
+      <p id="conn-hint" class="muted">Connect your Etsy account to begin.</p>
     </section>
 
-    <footer>
-      <span>Docs: Etsy Open API v3</span>
-      <a href="https://developers.etsy.com/documentation/essentials/authentication" target="_blank" rel="noreferrer">OAuth2 + PKCE</a> ·
-      <a href="https://developers.etsy.com/documentation/tutorials/listings" target="_blank" rel="noreferrer">Listings</a> ·
-      <a href="https://developers.etsy.com/documentation/essentials/requests" target="_blank" rel="noreferrer">Requests</a>
-    </footer>
-  </div>
+    <!-- 2) Your Shops -->
+    <section class="card">
+      <div class="card-header">
+        <h2>2) Your Shops</h2>
+        <div class="btn-row">
+          <button id="btn-load-shops" class="btn">Load My Shops</button>
+          <select id="shop-select" class="select" disabled>
+            <option>Loading…</option>
+          </select>
+        </div>
+      </div>
 
-  <script src="/app.js" type="module"></script>
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-label">Shop</div>
+          <div id="stat-shop-name" class="stat-value">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Shop ID</div>
+          <div id="stat-shop-id" class="stat-value">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Currency</div>
+          <div id="stat-currency" class="stat-value">—</div>
+        </div>
+      </div>
+
+      <details class="raw">
+        <summary>Show raw JSON</summary>
+        <pre id="raw-shops" class="raw-pre"></pre>
+      </details>
+    </section>
+
+    <!-- 3) Listings (Active) -->
+    <section class="card">
+      <div class="card-header">
+        <h2>3) Listings (Active)</h2>
+        <div class="btn-row">
+          <button id="btn-load-listings" class="btn">Load Active Listings</button>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-label">Active Listings</div>
+          <div id="stat-listings-count" class="stat-value">—</div>
+        </div>
+      </div>
+
+      <ul id="listing-mini" class="mini-list"></ul>
+
+      <details class="raw">
+        <summary>Show raw JSON</summary>
+        <pre id="raw-listings" class="raw-pre"></pre>
+      </details>
+    </section>
+
+    <!-- 4) Orders (Recent) -->
+    <section class="card">
+      <div class="card-header">
+        <h2>4) Orders (Recent)</h2>
+        <div class="btn-row">
+          <button id="btn-load-orders" class="btn">Load Recent Orders</button>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-label">Orders</div>
+          <div id="stat-orders-count" class="stat-value">—</div>
+        </div>
+      </div>
+
+      <ul id="orders-mini" class="mini-list"></ul>
+
+      <details class="raw">
+        <summary>Show raw JSON</summary>
+        <pre id="raw-orders" class="raw-pre"></pre>
+      </details>
+    </section>
+  </main>
+
+  <footer class="container footer">
+    <small class="muted">Etsy API • Railway</small>
+  </footer>
+
+  <script src="./script.js" defer></script>
 </body>
 </html>
