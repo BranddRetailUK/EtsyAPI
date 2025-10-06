@@ -6,8 +6,8 @@ const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const path = require('path');
 
-const RedisStore = require('connect-redis').default;   // NEW (for production sessions)
-const { Redis } = require('ioredis');                  // NEW (Redis client)
+const connectRedis = require('connect-redis');        // ← don't assume .default
+const { Redis } = require('ioredis');
 
 const { config } = require('./config/env');
 
@@ -28,7 +28,6 @@ const allowList = (process.env.ALLOWED_ORIGINS || '')
   .map(s => s.trim())
   .filter(Boolean);
 
-// If no allowList provided, default to allowing same-origin & tools (no Origin) – handy for local dev
 app.use(cors({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true); // curl/postman/no-origin
@@ -42,24 +41,43 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-/** Sessions (Redis in production if REDIS_URL is set; MemoryStore fallback in dev) */
+/** Sessions (Redis in production if REDIS_URL is set; MemoryStore fallback otherwise) */
 const isProd = process.env.NODE_ENV === 'production';
 
 // Create Redis client only if REDIS_URL provided
 const redis = process.env.REDIS_URL
   ? new Redis(process.env.REDIS_URL, {
       maxRetriesPerRequest: 3,
-      enableReadyCheck: true
+      enableReadyCheck: true,
     })
   : null;
 
-// Use RedisStore when redis client exists (production), else default MemoryStore (dev only)
-const store = redis ? new RedisStore({ client: redis, prefix: 'sess:' }) : undefined;
+/**
+ * Connect-Redis compatibility:
+ * - v5/v6: module is a function -> require('connect-redis')(session) returns a Store class
+ * - v7/v8 ESM: default export is the Store class -> require('connect-redis').default
+ * - Some builds expose { RedisStore } named export
+ */
+let RedisStoreCtor;
+if (typeof connectRedis === 'function') {
+  // legacy factory API
+  RedisStoreCtor = connectRedis(session);
+} else if (connectRedis && typeof connectRedis.default === 'function') {
+  // ESM default export
+  RedisStoreCtor = connectRedis.default;
+} else if (connectRedis && typeof connectRedis.RedisStore === 'function') {
+  // named export
+  RedisStoreCtor = connectRedis.RedisStore;
+}
+
+const store = (redis && RedisStoreCtor)
+  ? new RedisStoreCtor({ client: redis, prefix: 'sess:' })
+  : undefined;
 
 app.use(session({
   name: 'etsy.sid',
   secret: config.sessionSecret,
-  store,                 // Redis in production; undefined (MemoryStore) locally
+  store,                 // Redis in production; MemoryStore when undefined
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -86,9 +104,7 @@ app.get('/health', (_req, res) => {
 });
 
 /**
- * Express 5-safe SPA fallback:
- * - Use a regex instead of '*' (path-to-regexp@6 no longer supports raw '*')
- * - This must be last, after API/static routes
+ * Express 5-safe SPA fallback
  */
 app.get(/.*/, (req, res) => {
   res.sendFile(path.join(publicDir, 'index.html'));
