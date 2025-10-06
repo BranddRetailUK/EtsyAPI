@@ -4,13 +4,13 @@ const api = (path, opts={}) =>
     return r.json().catch(() => ({}));
   });
 
-const connectBtn = document.getElementById('btnConnect');
-const refreshBtn = document.getElementById('btnRefresh');
-const logoutBtn  = document.getElementById('btnLogout');
-const authStatus = document.getElementById('authStatus');
+const connectBtn = document.getElementById('btn-connect');
+const refreshBtn = document.getElementById('btn-refresh');
+const logoutBtn  = document.getElementById('btn-disconnect');
+const authStatus = document.getElementById('conn-hint');
 
 const shopsOut = document.getElementById('shopsOut');
-const shopSelect = document.getElementById('shopSelect');
+const shopSelect = document.getElementById('shop-select');
 const listingsOut = document.getElementById('listingsOut');
 const receiptsOut = document.getElementById('receiptsOut');
 const draftForm = document.getElementById('draftForm');
