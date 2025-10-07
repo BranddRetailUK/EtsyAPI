@@ -6,21 +6,20 @@ const { setTokens, clearTokens } = require('../services/tokenStore');
 
 const router = express.Router();
 
-// Start OAuth (PKCE)
+// --- Begin OAuth (PKCE) ---
 router.get('/login', (req, res) => {
   const state = randomString(24);
   const verifier = randomString(48);
   const challenge = codeChallengeFromVerifier(verifier);
 
-  // Store in session
   req.session.oauth = { state, verifier };
 
-  // Ensure session is persisted before redirecting to Etsy
   req.session.save((err) => {
     if (err) {
       console.error('[OAuth] session save error:', err);
       return res.status(500).send('Session error');
     }
+
     console.log('[OAuth] saved state', state, 'sid', req.sessionID);
 
     const params = new URLSearchParams({
@@ -37,7 +36,7 @@ router.get('/login', (req, res) => {
   });
 });
 
-// OAuth callback
+// --- OAuth callback ---
 router.get('/callback', async (req, res) => {
   try {
     const { code, state } = req.query;
@@ -65,7 +64,6 @@ router.get('/callback', async (req, res) => {
     setTokens(req.session, resp.data);
     delete req.session.oauth;
 
-    // Persist tokens before redirecting to the app
     req.session.save((err) => {
       if (err) {
         console.error('[OAuth] session save (post-token) error:', err);
@@ -80,7 +78,7 @@ router.get('/callback', async (req, res) => {
   }
 });
 
-// Refresh token
+// --- Refresh token ---
 router.post('/refresh', async (req, res) => {
   try {
     const refresh = req.session?.etsy?.tokens?.refresh_token;
@@ -110,10 +108,17 @@ router.post('/refresh', async (req, res) => {
   }
 });
 
-// Logout
+// --- Logout ---
 router.post('/logout', (req, res) => {
   clearTokens(req.session);
   req.session.save(() => res.json({ ok: true }));
+});
+
+// --- ✅ Connection status route (for dashboard badge) ---
+router.get('/status', (req, res) => {
+  const connected = !!req.session?.etsy?.tokens?.access_token;
+  const shopId = req.session?.etsy?.shop_id || null;
+  res.json({ connected, shopId });
 });
 
 module.exports = router;
