@@ -65,7 +65,7 @@ router.get('/callback', async (req, res) => {
     setTokens(req.session, resp.data);
     delete req.session.oauth;
 
-    // Persist tokens in the same session before redirecting to the app
+    // Persist tokens before redirecting to the app
     req.session.save((err) => {
       if (err) {
         console.error('[OAuth] session save (post-token) error:', err);

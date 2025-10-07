@@ -19,6 +19,8 @@
   },
   "author": "Brandd Retail UK",
   "license": "MIT",
-  "dependencies": {},
-  "devDependencies": {}
+  "dependencies": {
+    "connect-redis": "^7.1.1",
+    "redis": "^4.7.1"
+  }
 }

@@ -6,12 +6,12 @@ const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const path = require('path');
 
-const connectRedis = require('connect-redis');        // works v5–v8
-const { Redis } = require('ioredis');
-
 const { config } = require('./config/env');
 
-// API routes (CommonJS)
+// --- Use node-redis v4 with connect-redis v7 ---
+const { createClient } = require('redis');
+const RedisStore = require('connect-redis').default;
+
 const authRoutes = require('./routes/auth');
 const shopRoutes = require('./routes/shops');
 const listingRoutes = require('./routes/listings');
@@ -19,7 +19,7 @@ const orderRoutes = require('./routes/orders');
 
 const app = express();
 
-/** Trust Railway/NGINX proxy so req.secure/cookies work properly */
+/** Make Express trust Railway/NGINX so secure cookies work */
 app.set('trust proxy', 1);
 
 /** CORS allow-list (env: ALLOWED_ORIGINS="https://your.app,http://localhost:4000") */
@@ -43,69 +43,53 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-/** ---------- Sessions (Redis in production via REDIS_URL) ---------- */
+/** ---------- Sessions (Redis via node-redis v4) ---------- */
 const isProd = process.env.NODE_ENV === 'production';
-
 const redisUrl = process.env.REDIS_URL;
-if (!redisUrl) {
-  console.warn('[Session] REDIS_URL not set — using MemoryStore (dev only).');
-}
 
-const redisClient = redisUrl
-  ? new Redis(redisUrl, {
-      maxRetriesPerRequest: 3,
-      enableReadyCheck: true,
-      retryStrategy: (t) => Math.min(t * 200, 5000),
-    })
-  : null;
+let store;
+let redisClient;
 
-/**
- * connect-redis compatibility:
- * - v5/v6: module is a function -> require('connect-redis')(session) returns Store class
- * - v7/v8 ESM: default export is Store class -> require('connect-redis').default
- * - some builds expose { RedisStore }
- */
-let RedisStoreCtor;
-if (typeof connectRedis === 'function') {
-  // legacy factory API
-  RedisStoreCtor = connectRedis(session);
-} else if (connectRedis && typeof connectRedis.default === 'function') {
-  // ESM default export
-  RedisStoreCtor = connectRedis.default;
-} else if (connectRedis && typeof connectRedis.RedisStore === 'function') {
-  // named export
-  RedisStoreCtor = connectRedis.RedisStore;
-}
-
-const store =
-  redisClient && RedisStoreCtor
-    ? new RedisStoreCtor({
+(async () => {
+  try {
+    if (!redisUrl) {
+      console.warn('[Session] REDIS_URL not set — using MemoryStore (dev only).');
+    } else {
+      redisClient = createClient({ url: redisUrl });
+      redisClient.on('error', (err) => console.error('[Redis] client error:', err?.message || err));
+      await redisClient.connect(); // node-redis v4 requires explicit connect
+      console.log('[Redis] connected');
+      store = new RedisStore({
         client: redisClient,
         prefix: 'etsyapi:sess:',
-        disableTouch: false, // keep session alive while browsing
-        ttl: 60 * 60 * 6, // 6 hours if cookie.maxAge is not present
-      })
-    : undefined;
+        // ttl is handled by connect-redis using cookie.maxAge; can override with ttl: seconds
+      });
+    }
+  } catch (e) {
+    console.error('[Redis] connect failed; falling back to MemoryStore:', e?.message || e);
+    store = undefined;
+  }
+})();
 
 app.use(
   session({
     name: 'etsy.sid',
     secret: config.sessionSecret,
-    store, // Redis in prod; MemoryStore when undefined (dev)
+    store, // RedisStore if available; MemoryStore otherwise
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      sameSite: 'lax', // allows Etsy OAuth redirect to carry cookie
-      secure: isProd, // secure cookies in prod (requires trust proxy)
+      sameSite: 'lax',      // allows Etsy OAuth redirect to carry cookie
+      secure: isProd,       // secure cookies in prod (requires trust proxy)
       maxAge: 1000 * 60 * 30, // 30 minutes idle timeout
-      path: '/', // default
-      // domain: undefined, // keep undefined unless you use a custom domain/apex
+      path: '/',
+      // domain: undefined, // set only if you use a custom apex and need cross-subdomain
     },
   })
 );
 
-// Tiny trace to confirm session continuity across the OAuth flow
+// Trace session continuity across OAuth flow
 app.use((req, _res, next) => {
   console.log('[sess]', req.sessionID, 'has oauth?', !!req.session?.oauth);
   next();
@@ -133,7 +117,6 @@ app.get(/.*/, (_req, res) => {
 
 /** -------- Start server -------- */
 app.listen(config.port, () => {
-  // Redact password when printing the URL for sanity checking
   let masked = '(none)';
   if (redisUrl) {
     try {
