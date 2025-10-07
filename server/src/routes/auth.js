@@ -12,28 +12,39 @@ router.get('/login', (req, res) => {
   const verifier = randomString(48);
   const challenge = codeChallengeFromVerifier(verifier);
 
+  // Store in session
   req.session.oauth = { state, verifier };
 
-  const params = new URLSearchParams({
-    response_type: 'code',
-    client_id: config.apiKey,
-    redirect_uri: config.redirectUri,
-    scope: config.scopes,
-    state,
-    code_challenge: challenge,
-    code_challenge_method: 'S256'
-  }).toString();
+  // Ensure session is persisted before redirecting to Etsy
+  req.session.save((err) => {
+    if (err) {
+      console.error('[OAuth] session save error:', err);
+      return res.status(500).send('Session error');
+    }
+    console.log('[OAuth] saved state', state, 'sid', req.sessionID);
 
-  res.redirect(`https://www.etsy.com/oauth/connect?${params}`);
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: config.apiKey,
+      redirect_uri: config.redirectUri,
+      scope: config.scopes,
+      state,
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+    }).toString();
+
+    res.redirect(`https://www.etsy.com/oauth/connect?${params}`);
+  });
 });
 
 // OAuth callback
 router.get('/callback', async (req, res) => {
   try {
     const { code, state } = req.query;
-    const expected = req.session?.oauth?.state;
-    const verifier = req.session?.oauth?.verifier;
-    if (!code || !state || !expected || state !== expected) {
+    const stored = req.session?.oauth;
+    console.log('[OAuth] callback: sid', req.sessionID, 'got state', state, 'stored', stored?.state);
+
+    if (!code || !state || !stored || stored.state !== state) {
       return res.status(400).send('Invalid OAuth state.');
     }
 
@@ -42,7 +53,7 @@ router.get('/callback', async (req, res) => {
       client_id: config.apiKey,
       redirect_uri: config.redirectUri,
       code,
-      code_verifier: verifier
+      code_verifier: stored.verifier,
     });
 
     const resp = await axios.post(
@@ -54,9 +65,17 @@ router.get('/callback', async (req, res) => {
     setTokens(req.session, resp.data);
     delete req.session.oauth;
 
-    res.redirect('/');
+    // Persist tokens in the same session before redirecting to the app
+    req.session.save((err) => {
+      if (err) {
+        console.error('[OAuth] session save (post-token) error:', err);
+        return res.status(500).send('Session save error');
+      }
+      return res.redirect('/');
+    });
   } catch (err) {
-    console.error('OAuth callback error:', err.response?.data || err.message);
+    const payload = err.response?.data || err.message || err;
+    console.error('OAuth callback error:', payload);
     res.status(500).send('OAuth error. Check server logs.');
   }
 });
@@ -70,7 +89,7 @@ router.post('/refresh', async (req, res) => {
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
       client_id: config.apiKey,
-      refresh_token: refresh
+      refresh_token: refresh,
     });
 
     const resp = await axios.post(
@@ -82,7 +101,9 @@ router.post('/refresh', async (req, res) => {
     const merged = { ...req.session.etsy.tokens, ...resp.data };
     setTokens(req.session, merged);
 
-    res.json({ ok: true, tokens: { ...resp.data, access_token: '***redacted***' } });
+    req.session.save(() =>
+      res.json({ ok: true, tokens: { ...resp.data, access_token: '***redacted***' } })
+    );
   } catch (err) {
     console.error('Refresh error:', err.response?.data || err.message);
     res.status(500).json({ error: 'Refresh failed' });
@@ -92,7 +113,7 @@ router.post('/refresh', async (req, res) => {
 // Logout
 router.post('/logout', (req, res) => {
   clearTokens(req.session);
-  res.json({ ok: true });
+  req.session.save(() => res.json({ ok: true }));
 });
 
 module.exports = router;

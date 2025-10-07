@@ -6,7 +6,7 @@ const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const path = require('path');
 
-const connectRedis = require('connect-redis');        // ← don't assume .default
+const connectRedis = require('connect-redis');        // works v5–v8
 const { Redis } = require('ioredis');
 
 const { config } = require('./config/env');
@@ -25,38 +25,45 @@ app.set('trust proxy', 1);
 /** CORS allow-list (env: ALLOWED_ORIGINS="https://your.app,http://localhost:4000") */
 const allowList = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
-  .map(s => s.trim())
+  .map((s) => s.trim())
   .filter(Boolean);
 
-app.use(cors({
-  origin: (origin, cb) => {
-    if (!origin) return cb(null, true); // curl/postman/no-origin
-    if (allowList.length === 0 || allowList.includes(origin)) return cb(null, true);
-    return cb(new Error('Not allowed by CORS'));
-  },
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true); // curl/postman/no-origin
+      if (allowList.length === 0 || allowList.includes(origin)) return cb(null, true);
+      return cb(new Error('Not allowed by CORS'));
+    },
+    credentials: true,
+  })
+);
 
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-/** Sessions (Redis in production if REDIS_URL is set; MemoryStore fallback otherwise) */
+/** ---------- Sessions (Redis in production via REDIS_URL) ---------- */
 const isProd = process.env.NODE_ENV === 'production';
 
-// Create Redis client only if REDIS_URL provided
-const redis = process.env.REDIS_URL
-  ? new Redis(process.env.REDIS_URL, {
+const redisUrl = process.env.REDIS_URL;
+if (!redisUrl) {
+  console.warn('[Session] REDIS_URL not set — using MemoryStore (dev only).');
+}
+
+const redisClient = redisUrl
+  ? new Redis(redisUrl, {
       maxRetriesPerRequest: 3,
       enableReadyCheck: true,
+      retryStrategy: (t) => Math.min(t * 200, 5000),
     })
   : null;
 
 /**
- * Connect-Redis compatibility:
- * - v5/v6: module is a function -> require('connect-redis')(session) returns a Store class
- * - v7/v8 ESM: default export is the Store class -> require('connect-redis').default
- * - Some builds expose { RedisStore } named export
+ * connect-redis compatibility:
+ * - v5/v6: module is a function -> require('connect-redis')(session) returns Store class
+ * - v7/v8 ESM: default export is Store class -> require('connect-redis').default
+ * - some builds expose { RedisStore }
  */
 let RedisStoreCtor;
 if (typeof connectRedis === 'function') {
@@ -70,23 +77,39 @@ if (typeof connectRedis === 'function') {
   RedisStoreCtor = connectRedis.RedisStore;
 }
 
-const store = (redis && RedisStoreCtor)
-  ? new RedisStoreCtor({ client: redis, prefix: 'sess:' })
-  : undefined;
+const store =
+  redisClient && RedisStoreCtor
+    ? new RedisStoreCtor({
+        client: redisClient,
+        prefix: 'etsyapi:sess:',
+        disableTouch: false, // keep session alive while browsing
+        ttl: 60 * 60 * 6, // 6 hours if cookie.maxAge is not present
+      })
+    : undefined;
 
-app.use(session({
-  name: 'etsy.sid',
-  secret: config.sessionSecret,
-  store,                 // Redis in production; MemoryStore when undefined
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: isProd,      // secure cookies over HTTPS in production
-    maxAge: 1000 * 60 * 60 * 24 // 1 day
-  }
-}));
+app.use(
+  session({
+    name: 'etsy.sid',
+    secret: config.sessionSecret,
+    store, // Redis in prod; MemoryStore when undefined (dev)
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      sameSite: 'lax', // allows Etsy OAuth redirect to carry cookie
+      secure: isProd, // secure cookies in prod (requires trust proxy)
+      maxAge: 1000 * 60 * 30, // 30 minutes idle timeout
+      path: '/', // default
+      // domain: undefined, // keep undefined unless you use a custom domain/apex
+    },
+  })
+);
+
+// Tiny trace to confirm session continuity across the OAuth flow
+app.use((req, _res, next) => {
+  console.log('[sess]', req.sessionID, 'has oauth?', !!req.session?.oauth);
+  next();
+});
 
 /** -------- API routes -------- */
 app.use('/auth', authRoutes);
@@ -103,14 +126,24 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
 });
 
-/**
- * Express 5-safe SPA fallback
- */
-app.get(/.*/, (req, res) => {
+/** SPA fallback */
+app.get(/.*/, (_req, res) => {
   res.sendFile(path.join(publicDir, 'index.html'));
 });
 
 /** -------- Start server -------- */
 app.listen(config.port, () => {
+  // Redact password when printing the URL for sanity checking
+  let masked = '(none)';
+  if (redisUrl) {
+    try {
+      const u = new URL(redisUrl);
+      if (u.password) u.password = '***';
+      masked = u.toString();
+    } catch {
+      masked = '(invalid URL)';
+    }
+  }
   console.log(`Server listening on :${config.port}`);
+  console.log('[Env] REDIS_URL:', masked);
 });
